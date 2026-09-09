@@ -1,3 +1,7 @@
+> **Архивная копия.** Это оригинальный README проекта Excalidraw, перенесённый
+> сюда, чтобы не мешать README практикума. Относительные ссылки внутри вели от
+> корня репозитория и после переноса не работают.
+
 <a href="https://excalidraw.com/" target="_blank" rel="noopener">
   <picture>
     <source media="(prefers-color-scheme: dark)" alt="Excalidraw" srcset="https://excalidraw.nyc3.cdn.digitaloceanspaces.com/github/excalidraw_github_cover_2_dark.png" />

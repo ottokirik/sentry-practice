@@ -56,9 +56,14 @@
 `excalidraw-app/package.json`:
 
 ```json
-"build:staging": "VITE_APP_RELEASE=excalidraw-lab@$(git rev-parse --short HEAD) vite build --mode staging",
-"build:production": "VITE_APP_RELEASE=excalidraw-lab@$(git rev-parse --short HEAD) vite build --mode production",
+"build:staging": "VITE_APP_RELEASE=${VITE_APP_RELEASE:-excalidraw-lab@$(git rev-parse --short HEAD)} vite build --mode staging",
+"build:production": "VITE_APP_RELEASE=${VITE_APP_RELEASE:-excalidraw-lab@$(git rev-parse --short HEAD)} vite build --mode production",
 ```
+
+Конструкция `${ПЕРЕМЕННАЯ:-значение}` означает «взять уже заданное значение, а
+если его нет — подставить это». Локально переменной нет, и релиз соберётся из
+хеша коммита. В лабе 07 её задаст CI (там релиз прода берётся из имени тега), и
+скрипт это значение уважит, а не затрёт.
 
 `excalidraw-app/sentry.ts`:
 
