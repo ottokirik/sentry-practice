@@ -11,4 +11,5 @@ Sentry.init({
   initialScope: {
     tags: { stand },
   },
+  release: import.meta.env.VITE_APP_RELEASE,
 });

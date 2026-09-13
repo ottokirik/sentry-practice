@@ -46,7 +46,7 @@
     "build:app": "cross-env VITE_APP_GIT_SHA=$VERCEL_GIT_COMMIT_SHA cross-env VITE_APP_ENABLE_TRACKING=true vite build",
     "build:version": "node ../scripts/build-version.js",
     "build": "yarn build:app && yarn build:version",
-    "build:artifact": "vite build",
+    "build:artifact": "VITE_APP_RELEASE=${VITE_APP_RELEASE:-excalidraw-lab@$(git rev-parse --short HEAD)} vite build",
     "start": "yarn && vite",
     "start:production": "yarn build && yarn serve",
     "serve": "npx http-server build -a localhost -p 5001 -o",
