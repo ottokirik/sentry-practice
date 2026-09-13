@@ -8,13 +8,13 @@ import checker from "vite-plugin-checker";
 import { createHtmlPlugin } from "vite-plugin-html";
 import Sitemap from "vite-plugin-sitemap";
 import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
-import { sentryVitePlugin } from "@sentry/vite-plugin";
 
 export default defineConfig(({ mode }) => {
   // To load .env variables
   const envVars = loadEnv(mode, `../`);
   // https://vitejs.dev/config/
   return {
+    base: "./",
     server: {
       port: Number(envVars.VITE_APP_PORT || 3000),
       // open the browser
@@ -321,20 +321,6 @@ export default defineConfig(({ mode }) => {
       }),
       createHtmlPlugin({
         minify: true,
-      }),
-      sentryVitePlugin({
-        org: "home-ptw",
-        project: "excalidraw-lab",
-        telemetry: false,
-        release: {
-          name: process.env.VITE_APP_RELEASE,
-        },
-        sourcemaps: {
-          filesToDeleteAfterUpload: ["./build/**/*.map"],
-        },
-        errorHandler: (err) => {
-          throw err;
-        },
       }),
     ],
     publicDir: "../public",

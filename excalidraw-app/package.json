@@ -53,7 +53,6 @@
     "build:preview": "yarn build && vite preview --port 5000"
   },
   "devDependencies": {
-    "@sentry/vite-plugin": "5.4.0",
     "vite-plugin-sitemap": "0.7.1"
   }
 }

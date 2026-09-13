@@ -1,0 +1,33 @@
+name: restore-sourcemaps
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID прогона build-and-deploy, собравшего нужную версию
+        required: true
+      release:
+        description: Имя релиза, например excalidraw-lab@a1b2c3d
+        required: true
+
+permissions:
+  actions: read # скачивать артефакты другого прогона
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sentry-bundle
+          path: bundle
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Заливка карт из архива
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: excalidraw-lab
+          RELEASE: ${{ inputs.release }}
+        run: npx --yes @sentry/cli@3.7.0 sourcemaps upload --release "$RELEASE" --wait bundle

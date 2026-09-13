@@ -1,0 +1,167 @@
+name: build-and-deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+env:
+  SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+  SENTRY_PROJECT: excalidraw-lab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.release.outputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # история нужна, чтобы привязать коммиты к релизу
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - run: yarn install --frozen-lockfile
+
+      - name: Имя релиза
+        id: release
+        run: echo "name=excalidraw-lab@$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Сборка артефакта
+        env:
+          VITE_APP_RELEASE: ${{ steps.release.outputs.name }}
+        run: yarn workspace excalidraw-app build:artifact
+
+      - name: Вшить Debug ID в код и карты
+        run: npx --yes @sentry/cli@3.7.0 sourcemaps inject excalidraw-app/build
+
+      # До заливки и до удаления карт: если заливка упадёт, архив уже есть.
+      - name: Архив бандла для Sentry
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentry-bundle
+          path: excalidraw-app/build
+          retention-days: 90 # максимум для публичного репозитория
+
+      - name: Релиз и заливка карт
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          RELEASE: ${{ steps.release.outputs.name }}
+        run: |
+          cli="npx --yes @sentry/cli@3.7.0"
+          $cli releases new "$RELEASE"
+          $cli sourcemaps upload --release "$RELEASE" --wait excalidraw-app/build
+          $cli releases set-commits "$RELEASE" --auto --ignore-missing
+          $cli releases finalize "$RELEASE"
+
+      - name: Убрать карты из артефакта
+        run: |
+          find excalidraw-app/build -name '*.map' -delete
+          count=$(find excalidraw-app/build -name '*.map' | wc -l)
+          echo "карт в артефакте: $count"
+          test "$count" -eq 0
+
+      - name: Карты для этого кода есть в Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set -o pipefail # иначе сбой curl спрячется за успешным jq
+          region=$(sed -nE 's#^VITE_SENTRY_DSN=.*ingest\.([a-z]+\.)?sentry\.io.*#https://\1sentry.io#p' .env.production)
+          main=$(ls -S excalidraw-app/build/assets/index-*.js | head -1)
+          id=$(grep -o '//# debugId=[a-f0-9-]*' "$main" | cut -d= -f2)
+          test -n "$id" || { echo "в $main нет Debug ID"; exit 1; }
+          found=$(curl -fsS -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
+            "$region/api/0/projects/$SENTRY_ORG/$SENTRY_PROJECT/artifact-lookup/?debug_id=$id" \
+            | jq length)
+          echo "$(basename "$main") debug_id=$id → бандлов в Sentry: $found"
+          test "$found" -gt 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: excalidraw-app
+          path: excalidraw-app/build
+          retention-days: 14
+
+  deploy-staging:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4 # только ради скриптов из deploy/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: excalidraw-app
+          path: stand
+
+      - name: Конфигурация стенда
+        run: deploy/render-config.sh "file://$PWD/deploy/stands/staging-01.json" stand
+
+      - name: Публикация
+        env:
+          PAGES_REPO_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          test "$(find stand -name '*.map' | wc -l)" -eq 0
+          deploy/publish-pages.sh stand staging-01
+
+      - name: Deploy в Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: >
+          npx --yes @sentry/cli@3.7.0 deploys new
+          --release "${{ needs.build.outputs.release }}"
+          --env staging
+          --name staging-01
+          --url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/staging-01/"
+
+  deploy-production:
+    needs: [build, deploy-staging]
+    runs-on: ubuntu-latest
+    environment: production # ждёт подтверждения из Required reviewers
+    steps:
+      - uses: actions/checkout@v4
+
+      # Та же процедура, что при восстановлении карт. Выполняется на каждой
+      # выкатке на прод, поэтому в нужный момент она точно рабочая.
+      - uses: actions/download-artifact@v4
+        with:
+          name: sentry-bundle
+          path: bundle
+
+      - name: Повторная заливка карт из архива
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: >
+          npx --yes @sentry/cli@3.7.0 sourcemaps upload
+          --release "${{ needs.build.outputs.release }}"
+          --wait bundle
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: excalidraw-app
+          path: stand
+
+      - name: Конфигурация стенда
+        run: deploy/render-config.sh "file://$PWD/deploy/stands/production-01.json" stand
+
+      - name: Публикация
+        env:
+          PAGES_REPO_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          test "$(find stand -name '*.map' | wc -l)" -eq 0
+          deploy/publish-pages.sh stand production-01
+
+      - name: Deploy в Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: >
+          npx --yes @sentry/cli@3.7.0 deploys new
+          --release "${{ needs.build.outputs.release }}"
+          --env production
+          --name production-01
+          --url "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/production-01/"
