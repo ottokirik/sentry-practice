@@ -28,7 +28,29 @@
 подписано, что за чем.
 
 Рядом полезна `denyUrls`: она отбрасывает события, чей стектрейс ведёт в
-расширения браузера.
+расширения браузера. SDK берёт адрес файла из **последнего кадра** стектрейса
+и сверяет его со списком.
+
+Код, который расширение внедрило в страницу, адресуется по собственному
+протоколу расширений:
+
+| Браузер | Протокол |
+|---|---|
+| Chrome, Edge, Opera, Brave, Яндекс Браузер | `chrome-extension://` |
+| Firefox | `moz-extension://` |
+| Safari | `safari-web-extension://` (старые расширения — `safari-extension://`) |
+| старый Edge (EdgeHTML) | `ms-browser-extension://` |
+
+Не путай с `chrome://` — это внутренние страницы самого браузера, а не
+расширения. И не бери шаблон вроде `/extensions\//`: он совпадёт с любым
+адресом, в пути которого есть `extensions/`, включая твой собственный сайт.
+
+Без стектрейса в браузерном расширении `denyUrls` бесполезна: у события без
+кадров нет адреса, и фильтр его пропускает.
+
+Некоторый шум SDK отбрасывает сам, без настройки: `Script error.`,
+`ResizeObserver loop completed with undelivered notifications` и ещё около
+десятка шаблонов. Дублировать их в `ignoreErrors` не нужно.
 
 ### 2. Вычисти URL перед отправкой
 
@@ -45,11 +67,37 @@ https://excalidraw.com/#room=8a1b...,Zx9Kq...
 Sentry, ключ окажется в системе мониторинга, у всех, у кого есть доступ к
 проекту, и в её бэкапах.
 
-Добавь `beforeSend` и срежь хеш из `event.request.url`.
+Первое, что приходит в голову, — `beforeSend`, срезающий хеш из
+`event.request.url`. **Этого недостаточно.** Проверено на этом проекте: при
+открытии комнаты и смене хеша ключ оказывается в событии в нескольких местах.
 
-> **Подумай дальше.** URL уезжает не только в `request.url`. Хлебные крошки
-> навигации тоже его содержат. Загляни в `event.breadcrumbs` — стоит ли
-> чистить и там? Готового ответа в эталоне нет намеренно.
+| Где | В каком событии |
+|---|---|
+| `request.url` | ошибки и транзакции |
+| `breadcrumbs[].data.from` и `.to` — крошки навигации | ошибки и транзакции |
+| `breadcrumbs[].message` — крошки `console`, если ссылку вывели в консоль | ошибки и транзакции |
+| `contexts.trace.data["url.full"]` | транзакции |
+| `spans[].description` у спанов загрузки страницы (`browser.request`, `browser.DNS` и других) | транзакции |
+
+И второе: **`beforeSend` вызывается только для ошибок.** Транзакции идут мимо
+него, в `beforeSendTransaction`. Раз в пункте 5 ты включаешь трейсинг, чистить
+надо в обоих хуках.
+
+Чистить поля по одному ненадёжно: следующая версия SDK положит URL в новое
+место. Надёжнее убрать секрет **из всех строк события** — по шаблону самого
+секрета, а не по имени поля. У Excalidraw это `#room=<id>,<ключ>` у
+совместной комнаты и `#json=<id>,<ключ>` у ссылки «поделиться».
+
+Две ловушки, на которые я наткнулся, пока проверял:
+
+- **Не мутируй объекты события рекурсивно.** В нём есть служебное поле
+  `sdkProcessingMetadata` с внутренними объектами SDK, среди них — свойства
+  только для чтения. Рекурсивная запись упала с `Cannot set property … which
+  has only a getter`, и одно событие в итоге ушло в Sentry **с ключом**.
+  Надёжный способ — пересобрать каждое поле события через JSON, пропустив
+  `sdkProcessingMetadata`: в Sentry оно не отправляется.
+- **Если очистка не удалась — не отправляй событие** (`return null`).
+  Потерять событие лучше, чем ключ.
 
 ### 3. Разберись, что уходит по умолчанию
 
@@ -68,6 +116,24 @@ Sentry, ключ окажется в системе мониторинга, у �
 
 Проставь `Sentry.setUser({ id: ... })` — например, от анонимного идентификатора
 из localStorage. Почту не отправляй.
+
+Две вещи, которые легко упустить:
+
+- **`crypto.randomUUID` есть только в безопасном контексте** — на `https` и на
+  `localhost`. На внутреннем стенде, открытом по `http` и IP-адресу, его нет.
+  Проверено: вызов падает с `TypeError: crypto.randomUUID is not a function`,
+  а поскольку `sentry.ts` импортируется первым, **приложение не запускается
+  вовсе**. `crypto.getRandomValues` работает везде — используй его как запасной
+  вариант.
+- **Недоступное хранилище — не ошибка для Sentry.** localStorage бросает в
+  приватном режиме, при запрете сайту хранить данные, при переполнении. Это
+  условие окружения, а не баг, который можно починить: `captureException` на
+  каждый такой случай даст шумный issue без действия. Если хочешь знать,
+  скольких пользователей это касается, повесь тег на события, а не отправляй
+  отдельное событие.
+
+И общее правило: код в `sentry.ts` не должен бросать исключений. Он
+выполняется до приложения, и любая ошибка в нём роняет всё.
 
 ### 5. Настрой сэмплирование по стендам
 
@@ -91,10 +157,74 @@ Sentry, ключ окажется в системе мониторинга, у �
 <details>
 <summary>Эталон</summary>
 
+Проверен в сборке с заглушкой вместо Sentry: ни в одной из 15 отправок нет
+ключа — ни в ошибках, ни в транзакциях, ни в крошках навигации и `console`;
+на стенде по `http` и IP-адресу приложение запускается, и событие уходит.
+
 ```ts
 import * as Sentry from "@sentry/react";
 
 const runtimeConfig = window.__APP_CONFIG__;
+
+// crypto.randomUUID есть только в безопасном контексте (https или localhost).
+// На стенде, открытом по http и IP-адресу, его нет. getRandomValues есть везде.
+function generateId(): string {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+let storageAvailable = true;
+
+function getOrCreateAnonymousId(): string {
+  try {
+    const existing = localStorage.getItem("anonymousId");
+    if (existing) {
+      return existing;
+    }
+    const id = generateId();
+    localStorage.setItem("anonymousId", id);
+    return id;
+  } catch {
+    // Хранилище недоступно: приватный режим, запрет сайту хранить данные,
+    // переполнение. Это не баг приложения — работаем с id на время вкладки.
+    storageAvailable = false;
+    return generateId();
+  }
+}
+
+// Ключ шифрования Excalidraw живёт в хеше ссылки: #room=<id>,<ключ> у
+// совместной комнаты и #json=<id>,<ключ> у ссылки «поделиться».
+const SECRET_IN_HASH = /#(?:room|json)=[^\s"'<>\\]*/g;
+
+// URL страницы оседает в событии во многих местах: request.url, крошки
+// навигации, contexts.trace.data, description спанов загрузки страницы.
+// Поэтому чистим не отдельные поля, а всё, что уйдёт в Sentry.
+//
+// Объекты события не мутируем: среди них есть свойства только для чтения.
+// Каждое поле пересобирается через JSON — ровно в том виде, в каком
+// отправляется. sdkProcessingMetadata — внутренние данные SDK, в Sentry
+// они не уходят.
+function scrubSecrets<T extends object>(event: T): T | null {
+  const fields = event as unknown as Record<string, unknown>;
+  try {
+    for (const key of Object.keys(fields)) {
+      if (key === "sdkProcessingMetadata") {
+        continue;
+      }
+      const json = JSON.stringify(fields[key]);
+      if (json !== undefined) {
+        fields[key] = JSON.parse(json.replace(SECRET_IN_HASH, ""));
+      }
+    }
+    return event;
+  } catch {
+    // Не смогли вычистить — не отправляем: потерять событие лучше, чем ключ.
+    return null;
+  }
+}
 
 Sentry.init({
   dsn: import.meta.env.VITE_SENTRY_DSN,
@@ -125,29 +255,31 @@ Sentry.init({
     /QuotaExceededError: (The quota has been exceeded|.*setItem.*Storage)/i,
     // Приватный режим или отключённый IndexedDB.
     "Internal error opening backing store for indexedDB.open",
-    // Известный безвредный шум браузеров.
+    // Безвредный шум старых браузеров. Новую формулировку
+    // «…completed with undelivered notifications» SDK отбрасывает сам.
     "ResizeObserver loop limit exceeded",
-    "ResizeObserver loop completed with undelivered notifications",
   ],
 
-  denyUrls: [/extensions\//i, /^chrome:\/\//i, /^moz-extension:\/\//i],
+  // Код, внедрённый расширениями браузера.
+  denyUrls: [/^(chrome|moz|safari|safari-web|ms-browser)-extension:\/\//i],
 
-  beforeSend(event) {
-    // В хеше URL у Excalidraw лежит ключ шифрования комнаты.
-    // Отправлять его в систему мониторинга нельзя.
-    if (event.request?.url) {
-      event.request.url = event.request.url.replace(/#.*$/, "");
-    }
-    return event;
-  },
+  // Только события ошибок. Крошки к этому моменту уже в событии.
+  beforeSend: (event) => scrubSecrets(event),
+  // Трейсы идут мимо beforeSend.
+  beforeSendTransaction: (event) => scrubSecrets(event),
 });
 
 // Непрозрачный идентификатор вместо почты и имени.
 Sentry.setUser({ id: getOrCreateAnonymousId() });
+if (!storageAvailable) {
+  Sentry.setTag("storage", "unavailable");
+}
 ```
 
-Функцию `getOrCreateAnonymousId` напиши сам — достаточно `crypto.randomUUID()`,
-положенного в localStorage при первом заходе.
+> **Про `Failed to fetch` в списке Excalidraw.** Это сообщение любого
+> сетевого сбоя `fetch`, а не только устаревших чанков. Шаблон спрячет и
+> падения твоего собственного API. Для рабочего проекта сужай его до
+> `/(fetch|loading) dynamically imported module/i`.
 
 </details>
 
@@ -158,15 +290,34 @@ yarn workspace excalidraw-app build:artifact
 deploy/serve-stand.sh production-01 5092
 ```
 
-1. Открой `http://localhost:5092/#room=test123,secretkey456` и жми детонатор 1.
-   В событии, в разделе **Request → URL**, хеша быть не должно.
+1. Открой адрес с ключом правильной длины — иначе Excalidraw покажет
+   предупреждение и не войдёт в комнату:
+
+   ```
+   http://localhost:5092/#room=0123456789abcdef0123,SECRETkey1234567890abc
+   ```
+
+   В devtools → Console смени хеш, чтобы появилась крошка навигации:
+
+   ```js
+   history.pushState(null, "", "#room=fedcba9876543210fedc,SECONDkey0987654321xy")
+   ```
+
+   Нажми детонатор 1. В devtools → Network отфильтруй по `ingest` и поищи в
+   телах запросов `SECRETkey` и `SECONDkey` — поиск по содержимому запросов
+   открывается `Ctrl+F` на вкладке Network. Совпадений быть не должно ни в
+   запросах ошибок, ни в запросе с `"type":"transaction"`.
 2. В разделе **User** должен быть только `id`.
 3. Открой devtools → Network, отфильтруй по `ingest`, найди запрос к Sentry и
    посмотри тело — полезно один раз увидеть своими глазами, что именно уезжает.
 4. Проверь, что фильтр работает: временно добавь в `ignoreErrors` строку
    `"SENTRY LAB: synchronous throw"`, пересобери, перезапусти стенд, нажми
    детонатор 1 — события быть не должно. Потом убери.
-5. Проверь сэмплирование по стендам. Подними рядом `deploy/serve-stand.sh
+5. Открой тот же стенд не по `localhost`, а по IP-адресу машины:
+   `http://<IP>:5092`. Это небезопасный контекст, как у внутреннего стенда
+   без `https`. Приложение должно запуститься, а событие детонатора 1 —
+   прийти с `id` пользователя.
+6. Проверь сэмплирование по стендам. Подними рядом `deploy/serve-stand.sh
    staging-01 5091` и в Network обнови страницу: при каждой загрузке уходит
    запрос с `"type":"transaction"` в теле. На `production-01` такой запрос
    будет примерно в одной загрузке из десяти. Сборка та же — отличается
@@ -177,14 +328,19 @@ deploy/serve-stand.sh production-01 5092
 | Симптом | Причина |
 |---|---|
 | `ignoreErrors` не срабатывает | Строка сопоставляется как подстрока сообщения; проверь, что не опечатался |
-| Хеш всё ещё в событии | `beforeSend` не вернул `event`, либо правишь не то поле |
+| Хеш всё ещё в событии | `beforeSend` не вернул `event`, либо чистишь отдельные поля и пропустил крошки |
+| Ключ в запросе с `"type":"transaction"` | Нет `beforeSendTransaction`: транзакции идут мимо `beforeSend` |
+| `Cannot set property … which has only a getter` | Рекурсивно мутируешь событие и зашёл в `sdkProcessingMetadata` |
+| По IP-адресу пустая страница, `crypto.randomUUID is not a function` | Небезопасный контекст: нужен запасной вариант через `getRandomValues` |
+| События из расширений всё ещё приходят | В `denyUrls` не тот протокол, либо у события нет стектрейса |
 | Событий стало сильно меньше | Занизил `sampleRate` вместо `tracesSampleRate` |
 | Трейсов нет вовсе | `tracesSampleRate` есть, а `browserTracingIntegration()` не подключил |
 
 ## Итог
 
 - [ ] Шум отфильтрован через `ignoreErrors` и `denyUrls`
-- [ ] Хеш URL срезается в `beforeSend`
+- [ ] Ключ комнаты не уходит ни в ошибках, ни в транзакциях, ни в крошках
+- [ ] Стенд по `http` и IP-адресу запускается
 - [ ] Пользователь — непрозрачный `id`, без почты
 - [ ] Сэмплирование трейсов различается по стендам
 
