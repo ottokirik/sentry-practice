@@ -72,7 +72,9 @@
 
 ## Способ 1: заливка через `sentry-cli` и архив карт
 
-Плагин для заливки не используется. Каждый шаг проверен.
+Плагин для заливки не используется. Каждый шаг проверен. Готовый пайплайн с
+этим способом, включая workflow восстановления, — в
+[лабе 07](../labs/07-ci.md).
 
 ### При сборке
 
@@ -86,8 +88,8 @@ sentry-cli sourcemaps inject excalidraw-app/build
 # 3. сохранить карты в закрытый архив ДО удаления
 (cd excalidraw-app/build && find . -name '*.map' | cpio -pdm "$MAPS_ARCHIVE")
 
-# 4. залить
-sentry-cli sourcemaps upload --release "$VITE_APP_RELEASE" excalidraw-app/build
+# 4. залить и дождаться обработки на сервере
+sentry-cli sourcemaps upload --release "$VITE_APP_RELEASE" --wait excalidraw-app/build
 
 # 5. убрать карты из того, что поедет на стенды
 find excalidraw-app/build -name '*.map' -delete
@@ -96,7 +98,8 @@ find excalidraw-app/build -name '*.map' -delete
 Результат проверки:
 
 - после `inject` в главном чанке комментарий `//# debugId=4d7f93ca-…` и поле
-  `debug_id` в карте совпадают;
+  в карте совпадают. Имя поля зависит от версии CLI: 2.58.6 пишет `debug_id`,
+  3.7.0 — `debugId`;
 - в архиве 114 карт, в деплоимом артефакте 0;
 - **событие из этой сборки в браузере пришло с `debug_id` `4d7f93ca-…`** для
   упавшего файла — SDK использует именно вшитый CLI идентификатор.
@@ -184,8 +187,9 @@ curl -s -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
 
 - **Задержка индексации.** Сразу после успешной заливки поиск вернул `[]`,
   через минуту — бандл нашёлся. CLI честно пишет
-  `processing pending on server`. Проверка в CI сразу после заливки дала бы
-  ложную тревогу — нужен повтор с ожиданием.
+  `processing pending on server`. Решение — флаг `--wait` у
+  `sourcemaps upload` (есть в `sentry-cli` 3.7.0): заливка заняла 7 с, и
+  бандл нашёлся сразу после неё.
 - **Сбой DNS посреди заливки.** `sentry-cli` падал с
   `Could not resolve host: de.sentry.io`, а плагин показывал только
   `failed with exit code 1`. Настоящая причина видна с

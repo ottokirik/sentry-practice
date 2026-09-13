@@ -24,6 +24,14 @@ target="$root/.stands/$stand"
 rm -rf "$target"
 mkdir -p "$target"
 cp -r "$artifact/." "$target/"
+
+# На стенд карты не попадают никогда. После перехода на sentry-cli (лаба 07)
+# локальная сборка их не удаляет — их удаляет только CI после заливки.
+maps="$(find "$target" -name '*.map' | wc -l)"
+if [ "$maps" -gt 0 ]; then
+  find "$target" -name '*.map' -delete
+  echo "удалено карт со стенда: $maps"
+fi
 "$root/deploy/render-config.sh" "file://$root/deploy/stands/$stand.json" "$target"
 
 echo "стенд $stand: http://localhost:$port"

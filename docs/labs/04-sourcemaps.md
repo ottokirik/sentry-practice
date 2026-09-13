@@ -235,6 +235,11 @@ find excalidraw-app/build -name "*.map" | wc -l
 git add -A && git commit -m "лаба 04: hidden source maps и заливка в Sentry"
 ```
 
+> Плагин — самый быстрый способ увидеть, как работают скрытые карты. В лабе 07
+> заливку в CI переведём на `sentry-cli`: карты, оставшиеся после плагина,
+> нельзя сохранить в архив и потом залить повторно. Почему — в
+> [docs/notes/sourcemaps-retention.md](../notes/sourcemaps-retention.md).
+
 Убедись, что токен **не** попал в коммит:
 
 ```bash

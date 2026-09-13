@@ -148,7 +148,8 @@ const SENTRY_DISABLED = import.meta.env.VITE_APP_DISABLE_SENTRY === "true";
 | Требование | Как решено |
 |---|---|
 | Разные стенды | Одна сборка; `environment` и тег `stand` из `config.js`, который пишет стенд |
-| Карты закрыты | `sourcemap: "hidden"` + `filesToDeleteAfterUpload` |
+| Карты закрыты | `sourcemap: "hidden"`, карты удаляются в CI после заливки, стенды проверяются на их отсутствие |
+| Карты не теряются | `sentry-cli inject`, архив до заливки, повторная заливка при выкатке на прод, workflow восстановления |
 | Дебаг прода работает | Заливка в Sentry, матчинг по Debug ID |
 | Секрет не утекает | Токен только в GitHub Secrets |
 | Что где выкачено | Релиз при сборке, deploy при каждой раскатке |
