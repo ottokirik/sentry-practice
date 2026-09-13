@@ -142,4 +142,8 @@ curl -s -o /dev/null -w "sw.js.map: %{http_code}\n" http://localhost:5092/sw.js.
 git add -A && git commit -m "лаба 05: закрыл утечку карт сервис-воркера"
 ```
 
+Сколько карты живут в Sentry, почему стабильная версия может остаться без них
+и как хранить их у себя — в
+[docs/notes/sourcemaps-retention.md](../notes/sourcemaps-retention.md).
+
 → [Лаба 06. Шум и приватность](06-noise-and-privacy.md)
