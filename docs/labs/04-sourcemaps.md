@@ -218,7 +218,7 @@ find excalidraw-app/build -name "*.map" | wc -l
 | Симптом | Причина |
 |---|---|
 | `Warning: No auth token provided` | Файл с токеном не там: нужен `excalidraw-app/.env.sentry-build-plugin`, не в корне |
-| `failed with exit code 1` при заливке | Неверный токен, либо слаг организации/проекта с опечаткой |
+| `failed with exit code 1` при заливке | Настоящую причину плагин не показывает — это код возврата `sentry-cli`. Повтори сборку с подробным логом: `SENTRY_LOG_LEVEL=info yarn workspace excalidraw-app build:artifact` и ищи строки `error:` и `Caused by`. Частые причины: неверный токен, опечатка в слаге организации или проекта, сетевой сбой |
 | Сборка зелёная, но в Source Maps пусто | Не поставил `errorHandler` и проглядел ERROR в логе |
 | `.map` остались все, больше сотни | Плагин не последний в массиве `plugins`, либо глоб не совпал с путём |
 | В бандле остался `//# sourceMappingURL` | `sourcemap` не переключил на `"hidden"` |
