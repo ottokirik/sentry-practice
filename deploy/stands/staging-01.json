@@ -1,0 +1,12 @@
+{
+  "environment": "staging",
+  "stand": "staging-01",
+  "sentry": {
+    "tracesSampleRate": 1.0
+  },
+  "app": {
+    "features": {
+      "collaboration": false
+    }
+  }
+}

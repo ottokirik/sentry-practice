@@ -39,9 +39,13 @@
 
 ### 1. Прокинь версию в сборку
 
-Заведи переменную `VITE_APP_RELEASE` и заполняй её на этапе сборки коротким
-хешем коммита. Тип для неё уже объявлен в `vite-env.d.ts` — он там с самого
-начала.
+Заведи переменную `VITE_APP_RELEASE` и заполняй её в скрипте `build:artifact`
+коротким хешем коммита. Тип для неё уже объявлен в `vite-env.d.ts` — он там с
+самого начала.
+
+В модели «одна сборка — много стендов» релиз — это имя артефакта. Он
+проставляется один раз при сборке и одинаков на всех стендах, куда артефакт
+потом раскатают.
 
 Формат имени релиза свободный, но Sentry лучше распознаёт вид
 `имя-пакета@версия`. Возьми `excalidraw-lab@<хеш>`.
@@ -56,13 +60,12 @@
 `excalidraw-app/package.json`:
 
 ```json
-"build:staging": "VITE_APP_RELEASE=${VITE_APP_RELEASE:-excalidraw-lab@$(git rev-parse --short HEAD)} vite build --mode staging",
-"build:production": "VITE_APP_RELEASE=${VITE_APP_RELEASE:-excalidraw-lab@$(git rev-parse --short HEAD)} vite build --mode production",
+"build:artifact": "VITE_APP_RELEASE=${VITE_APP_RELEASE:-excalidraw-lab@$(git rev-parse --short HEAD)} vite build",
 ```
 
 Конструкция `${ПЕРЕМЕННАЯ:-значение}` означает «взять уже заданное значение, а
 если его нет — подставить это». Локально переменной нет, и релиз соберётся из
-хеша коммита. В лабе 07 её задаст CI (там релиз прода берётся из имени тега), и
+хеша коммита. В CI её можно задать снаружи — например, номером сборки, — и
 скрипт это значение уважит, а не затрёт.
 
 `excalidraw-app/sentry.ts`:
@@ -70,13 +73,15 @@
 ```ts
 Sentry.init({
   dsn: import.meta.env.VITE_SENTRY_DSN,
-  environment: import.meta.env.MODE,
-  enabled:
-    import.meta.env.MODE !== "development" ||
-    import.meta.env.VITE_SENTRY_FORCE_ENABLE === "true",
+  environment: runtimeConfig?.environment ?? "unconfigured",
+  enabled: import.meta.env.MODE !== "development",
+  initialScope: {
+    tags: { stand: runtimeConfig?.stand ?? "unconfigured" },
+  },
 
-  // Метка версии: регрессии, suspect commits, release health.
-  // На расшифровку стектрейсов НЕ влияет — этим занимаются Debug ID.
+  // Имя артефакта: регрессии, suspect commits, release health.
+  // Одинаково на всех стендах. На расшифровку стектрейсов НЕ влияет —
+  // этим занимаются Debug ID.
   release: import.meta.env.VITE_APP_RELEASE,
 });
 ```
@@ -90,16 +95,23 @@ Sentry.init({
 ## Проверка
 
 ```bash
-yarn workspace excalidraw-app build:staging
-npx http-server excalidraw-app/build -p 5001 --silent
+yarn workspace excalidraw-app build:artifact
+deploy/serve-stand.sh staging-01 5091
 ```
 
-В шапке панели-детонатора должно появиться `release: excalidraw-lab@a1b2c3d`
-вместо `(не задан)`.
+и во втором терминале:
 
-Жми детонатор 1, открой событие в Sentry. В правой колонке, в блоке тегов,
-будет `release`. Кликнув по нему, попадёшь на страницу релиза — пока пустую:
-коммиты мы к нему привяжем в лабе 07.
+```bash
+deploy/serve-stand.sh production-01 5092
+```
+
+В шапке панели-детонатора на **обоих** стендах должно появиться одно и то же
+`release: excalidraw-lab@a1b2c3d` вместо `(не задан)`.
+
+Жми детонатор 1 на обоих стендах и открой события в Sentry. У них разные
+`environment` и `stand`, но одинаковый `release`. Кликнув по релизу, попадёшь
+на его страницу: там видно, в каких окружениях этот артефакт встречался.
+Коммиты к релизу привяжем в лабе 07.
 
 ## Осторожно: грязное дерево
 
@@ -121,6 +133,8 @@ git status --porcelain | head
 | Симптом | Причина |
 |---|---|
 | `release: (не задан)` в панели | Переменная не попала в сборку: собрал напрямую `vite build`, минуя скрипт |
+| После пересборки в панели старый релиз | Сервис-воркер Excalidraw отдал закешированную сборку. Обнови страницу ещё раз |
+| На стендах разные релизы | Стенды раскатаны из разных сборок — перезапусти оба после `build:artifact` |
 | В теге релиза строка `$(git rev-parse --short HEAD)` целиком | Скрипт выполнился не в POSIX-шелле |
 | Релиз есть, но страница релиза пустая | Так и должно быть. Коммиты привяжем в лабе 07 |
 

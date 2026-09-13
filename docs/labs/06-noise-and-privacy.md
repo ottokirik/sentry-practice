@@ -80,6 +80,11 @@ Sentry, ключ окажется в системе мониторинга, у �
 
 Разумно: на staging `1.0` (трафика мало, видно всё), на проде `0.1`.
 
+Сборка одна на все стенды, поэтому долю трейсов в неё не зашить — она приходит
+со стенда. В `deploy/stands/*.json` уже есть `sentry.tracesSampleRate`, и
+`render-config.sh` кладёт его в `config.js`. Возьми значение оттуда. Если
+конфигурации нет, выбери осторожное значение по умолчанию.
+
 Учти: `tracesSampleRate` сам по себе ничего не включает — нужна интеграция
 `browserTracingIntegration()`.
 
@@ -89,22 +94,24 @@ Sentry, ключ окажется в системе мониторинга, у �
 ```ts
 import * as Sentry from "@sentry/react";
 
-const isProduction = import.meta.env.MODE === "production";
+const runtimeConfig = window.__APP_CONFIG__;
 
 Sentry.init({
   dsn: import.meta.env.VITE_SENTRY_DSN,
-  environment: import.meta.env.MODE,
+  environment: runtimeConfig?.environment ?? "unconfigured",
   release: import.meta.env.VITE_APP_RELEASE,
-  enabled:
-    import.meta.env.MODE !== "development" ||
-    import.meta.env.VITE_SENTRY_FORCE_ENABLE === "true",
+  enabled: import.meta.env.MODE !== "development",
+  initialScope: {
+    tags: { stand: runtimeConfig?.stand ?? "unconfigured" },
+  },
 
   integrations: [Sentry.browserTracingIntegration()],
 
   // Ошибки шлём все — они редкие и каждая ценна.
   sampleRate: 1.0,
-  // Трейсов много, и это отдельная квота.
-  tracesSampleRate: isProduction ? 0.1 : 1.0,
+  // Трейсов много, и это отдельная квота. Доля — свойство стенда.
+  // Без конфигурации берём прод-значение: лучше недособрать, чем сжечь квоту.
+  tracesSampleRate: runtimeConfig?.sentry.tracesSampleRate ?? 0.1,
 
   ignoreErrors: [
     // Только Safari, ничего не ломает, но спамит.
@@ -146,18 +153,23 @@ Sentry.setUser({ id: getOrCreateAnonymousId() });
 ## Проверка
 
 ```bash
-yarn workspace excalidraw-app build:production
-npx http-server excalidraw-app/build -p 5002 --silent
+yarn workspace excalidraw-app build:artifact
+deploy/serve-stand.sh production-01 5092
 ```
 
-1. Открой `http://localhost:5002/#room=test123,secretkey456` и жми детонатор 1.
+1. Открой `http://localhost:5092/#room=test123,secretkey456` и жми детонатор 1.
    В событии, в разделе **Request → URL**, хеша быть не должно.
 2. В разделе **User** должен быть только `id`.
 3. Открой devtools → Network, отфильтруй по `ingest`, найди запрос к Sentry и
    посмотри тело — полезно один раз увидеть своими глазами, что именно уезжает.
 4. Проверь, что фильтр работает: временно добавь в `ignoreErrors` строку
-   `"SENTRY LAB: synchronous throw"`, пересобери, нажми детонатор 1 — события
-   быть не должно. Потом убери.
+   `"SENTRY LAB: synchronous throw"`, пересобери, перезапусти стенд, нажми
+   детонатор 1 — события быть не должно. Потом убери.
+5. Проверь сэмплирование по стендам. Подними рядом `deploy/serve-stand.sh
+   staging-01 5091` и в Network обнови страницу: при каждой загрузке уходит
+   запрос с `"type":"transaction"` в теле. На `production-01` такой запрос
+   будет примерно в одной загрузке из десяти. Сборка та же — отличается
+   только `config.js`.
 
 ## Что должно сломаться, если сделать неправильно
 

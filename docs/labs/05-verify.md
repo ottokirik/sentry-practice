@@ -11,14 +11,19 @@
 
 ### 1. Читаемый стектрейс
 
-Раздай сборку из лабы 04 (важно: именно её — Debug ID должны совпадать с тем,
-что залито):
+Раскатай сборку из лабы 04 на два стенда (важно: именно её — Debug ID должны
+совпадать с тем, что залито). `serve-stand.sh` копирует сборку при запуске,
+так что стенды, поднятые до пересборки, надо перезапустить:
 
 ```bash
-npx http-server excalidraw-app/build -p 5002 --silent
+deploy/serve-stand.sh production-01 5092
 ```
 
-Открой `http://localhost:5002`, жми детонатор **1**, открой событие в Sentry.
+```bash
+deploy/serve-stand.sh staging-01 5091
+```
+
+Открой `http://localhost:5092`, жми детонатор **1**, открой событие в Sentry.
 
 Теперь вместо `at fire (index-rZz89yEX.js:2640:2592)` должно быть примерно так:
 
@@ -30,11 +35,17 @@ at fire (excalidraw-app/debug/DebugPanel.tsx:71:15)
 детонатор **4** — он падает в отдельном ленивом чанке, и это отдельный файл со
 своей картой.
 
+Теперь то же на `http://localhost:5091`. Стектрейс со staging-стенда тоже
+читаемый, хотя для него ничего отдельно не заливали. Карты привязаны к
+содержимому файлов через Debug ID, а содержимое на всех стендах одно. Одна
+заливка при сборке — и расшифровка работает на всех шестнадцати стендах
+сразу.
+
 ### 2. Карты не отдаются наружу
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" \
-  "http://localhost:5002/assets/$(ls -S excalidraw-app/build/assets/*.js | head -1 | xargs basename).map"
+  "http://localhost:5092/assets/$(ls -S excalidraw-app/build/assets/*.js | head -1 | xargs basename).map"
 ```
 
 Ожидается `404`. И в devtools на вкладке Sources теперь только
@@ -49,7 +60,7 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 
 ```bash
 find excalidraw-app/build -name "*.map"
-curl -s -o /dev/null -w "sw.js.map: %{http_code}\n" http://localhost:5002/sw.js.map
+curl -s -o /dev/null -w "sw.js.map: %{http_code}\n" http://localhost:5092/sw.js.map
 ```
 
 Получишь `200`. Карты сервис-воркера отдаются наружу.
@@ -87,11 +98,21 @@ curl -s -o /dev/null -w "sw.js.map: %{http_code}\n" http://localhost:5002/sw.js.
 ### 5. Проверь ещё раз
 
 ```bash
-yarn workspace excalidraw-app build:production
+yarn workspace excalidraw-app build:artifact
 find excalidraw-app/build -name "*.map" | wc -l
 ```
 
-Теперь должен быть **ноль**. Вот это и есть «карты закрыты».
+Теперь должен быть **ноль**. Перезапусти стенд и убедись снаружи:
+
+```bash
+deploy/serve-stand.sh production-01 5092
+```
+
+```bash
+curl -s -o /dev/null -w "sw.js.map: %{http_code}\n" http://localhost:5092/sw.js.map
+```
+
+`404`. Вот это и есть «карты закрыты».
 
 ## Разбор граблей
 

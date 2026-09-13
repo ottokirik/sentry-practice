@@ -139,6 +139,9 @@ export const DebugPanel = () => {
       <div style={{ opacity: 0.6 }}>
         mode: {import.meta.env.MODE} · PROD: {String(import.meta.env.PROD)} ·
         release: {import.meta.env.VITE_APP_RELEASE || "(не задан)"}
+        <br />
+        stand: {window.__APP_CONFIG__?.stand ?? "(нет config.js)"} · env:{" "}
+        {window.__APP_CONFIG__?.environment ?? "—"}
       </div>
       {detonators.map((detonator) => (
         <button

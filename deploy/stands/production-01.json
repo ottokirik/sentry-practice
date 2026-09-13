@@ -1,0 +1,12 @@
+{
+  "environment": "production",
+  "stand": "production-01",
+  "sentry": {
+    "tracesSampleRate": 0.1
+  },
+  "app": {
+    "features": {
+      "collaboration": true
+    }
+  }
+}

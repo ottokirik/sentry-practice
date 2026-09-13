@@ -31,3 +31,6 @@ meta*.json
 # Практикум по Sentry: auth-токен для заливки source maps.
 # DSN коммитить можно и нужно, этот файл — нельзя.
 .env.sentry-build-plugin
+
+# Практикум по Sentry: локальные «стенды» из deploy/serve-stand.sh
+.stands/

@@ -39,14 +39,15 @@ sentry-dbid-16fcb8cd-9d7d-43b7-a5bc-1a59de78ec64
 
 ### 1. Сначала посмотри на боль
 
-Собери прод как есть и убедись, что проблема реальна:
+Собери артефакт как есть, раскатай на прод-стенд и убедись, что проблема
+реальна:
 
 ```bash
-yarn workspace excalidraw-app build:production
-npx http-server excalidraw-app/build -p 5002 --silent
+yarn workspace excalidraw-app build:artifact
+deploy/serve-stand.sh production-01 5092
 ```
 
-Открой `http://localhost:5002`, жми детонатор 1, открой событие в Sentry.
+Открой `http://localhost:5092`, жми детонатор 1, открой событие в Sentry.
 Стектрейс будет такой:
 
 ```
@@ -59,9 +60,16 @@ at fire (index-rZz89yEX.js:2640:2592)
 find excalidraw-app/build -name "*.map" | wc -l
 ```
 
-Больше сотни. Любой желающий может скачать их и прочитать твой исходник.
-Sentry их не использует, потому что не может достучаться до `localhost` — а в
-рабочем проекте достучался бы, и это ровно то, чего мы не хотим.
+Больше сотни, и стенд их честно отдаёт:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" \
+  "http://localhost:5092/assets/$(ls -S excalidraw-app/build/assets/*.js | head -1 | xargs basename).map"
+```
+
+`200`. Любой желающий может скачать карты и прочитать твой исходник. Sentry их
+не использует, потому что не может достучаться до `localhost`, — а в рабочем
+проекте достучался бы, и это ровно то, чего мы не хотим.
 
 ### 2. Заведи auth-токен
 
@@ -105,8 +113,17 @@ yarn workspace excalidraw-app add -D @sentry/vite-plugin@5.4.0
 Добавь `sentryVitePlugin(...)` **последним элементом** массива `plugins` — он
 должен видеть финальные файлы, после всех преобразований.
 
-Настрой: `org`, `project`, `sourcemaps.filesToDeleteAfterUpload` и —
-обязательно — `errorHandler`. Почему обязательно, читай во врезке ниже.
+Настрой: `org`, `project`, `release.name`, `sourcemaps.filesToDeleteAfterUpload`
+и — обязательно — `errorHandler`. Почему обязательно, читай во врезке ниже.
+
+Про `release.name`. Плагин при заливке создаёт в Sentry релиз, даже если его
+об этом не просить. Без явного имени он возьмёт **полный** хеш коммита, а SDK
+из лабы 03 отправляет `excalidraw-lab@<короткий хеш>`. В списке релизов
+появятся два разных релиза для одного артефакта. На расшифровку это не
+влияет — матчинг идёт по Debug ID, — но путает, а в лабе 07 сломает
+регистрацию deploy. Возьми имя из той же переменной `VITE_APP_RELEASE`:
+скрипт `build:artifact` задаёт её для всего процесса сборки, так что в
+`vite.config.mts` она доступна через `process.env`.
 
 > ### Ловушка, на которой горят в проде
 >
@@ -147,6 +164,11 @@ import { sentryVitePlugin } from "@sentry/vite-plugin";
         project: "excalidraw-lab",
         // authToken подхватывается из .env.sentry-build-plugin
         telemetry: false,
+        // Тот же релиз, что отправляет SDK. Иначе плагин назовёт релиз
+        // полным хешем коммита, и у одного артефакта будет два релиза.
+        release: {
+          name: process.env.VITE_APP_RELEASE,
+        },
         sourcemaps: {
           filesToDeleteAfterUpload: ["./build/**/*.map"],
         },
@@ -165,7 +187,7 @@ import { sentryVitePlugin } from "@sentry/vite-plugin";
 ## Проверка
 
 ```bash
-yarn workspace excalidraw-app build:production
+yarn workspace excalidraw-app build:artifact
 ```
 
 В логе сборки должно быть:
@@ -185,6 +207,9 @@ find excalidraw-app/build -name "*.map" | wc -l
 Ожидается `2` — не ноль. Почему именно два и что с этим делать, разберём в
 следующей лабе; пока просто запомни число.
 
+Обрати внимание: заливка происходит **при сборке**, один раз на артефакт. На
+стендах `deploy/serve-stand.sh` ничего никуда не заливает — ему и не нужно.
+
 В Sentry загляни в **Settings → Projects → excalidraw-lab → Source Maps** —
 там появится загруженный бандл артефактов.
 
@@ -195,8 +220,9 @@ find excalidraw-app/build -name "*.map" | wc -l
 | `Warning: No auth token provided` | Файл с токеном не там: нужен `excalidraw-app/.env.sentry-build-plugin`, не в корне |
 | `failed with exit code 1` при заливке | Неверный токен, либо слаг организации/проекта с опечаткой |
 | Сборка зелёная, но в Source Maps пусто | Не поставил `errorHandler` и проглядел ERROR в логе |
-| `.map` остались все 115 | Плагин не последний в массиве `plugins`, либо глоб не совпал с путём |
+| `.map` остались все, больше сотни | Плагин не последний в массиве `plugins`, либо глоб не совпал с путём |
 | В бандле остался `//# sourceMappingURL` | `sourcemap` не переключил на `"hidden"` |
+| В Sentry два релиза: `excalidraw-lab@…` и длинный хеш | Не задан `release.name` в плагине |
 
 ## Итог
 
