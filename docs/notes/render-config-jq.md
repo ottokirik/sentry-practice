@@ -112,8 +112,17 @@ jq: error (at <stdin>:12): string ("window.__A...) and object ({"environme...) c
 до старта приложения. Секция `app` и всё, что потом добавят в сервис
 конфигурации — например, внутренние адреса, — наружу через этот файл не уедет.
 
-Если какого-то поля во входе нет, `jq` подставит `null`, а не упадёт. В
-`sentry.ts` это покрыто: `??` одинаково обрабатывает и `null`, и `undefined`.
+Если какого-то поля во входе нет, `jq` подставит `null`, а не упадёт:
+
+```js
+window.__APP_CONFIG__ = {"environment":"staging","stand":null,"sentry":null};
+```
+
+Для `environment` и `stand` в `sentry.ts` это покрыто: `??` одинаково
+обрабатывает и `null`, и `undefined`. А вот при обращении вглубь нужен `?.` на
+каждом уровне: `runtimeConfig?.sentry.tracesSampleRate` при `"sentry": null`
+бросит `TypeError` на старте приложения. Поэтому в типе `AppRuntimeConfig`
+секция `sentry` необязательная — TypeScript не даст забыть проверку.
 
 ## Почему `jq`, а не шаблон через `echo`, `sed` или `envsubst`
 

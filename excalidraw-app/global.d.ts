@@ -14,9 +14,10 @@ declare global {
   interface AppRuntimeConfig {
     environment: string;
     stand: string;
-    sentry: {
+    // Конфигурация приходит извне, секции может не быть: jq запишет null.
+    sentry?: {
       tracesSampleRate: number;
-    };
+    } | null;
   }
 
   interface Window {

@@ -111,7 +111,8 @@ Sentry.init({
   sampleRate: 1.0,
   // Трейсов много, и это отдельная квота. Доля — свойство стенда.
   // Без конфигурации берём прод-значение: лучше недособрать, чем сжечь квоту.
-  tracesSampleRate: runtimeConfig?.sentry.tracesSampleRate ?? 0.1,
+  // ?. на каждом уровне: секции sentry в конфигурации может не оказаться.
+  tracesSampleRate: runtimeConfig?.sentry?.tracesSampleRate ?? 0.1,
 
   ignoreErrors: [
     // Только Safari, ничего не ломает, но спамит.
