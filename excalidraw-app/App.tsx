@@ -56,6 +56,7 @@ import {
 import { newElementWith } from "@excalidraw/element";
 import { isInitializedImageElement } from "@excalidraw/element";
 import clsx from "clsx";
+import * as Sentry from "@sentry/react";
 import {
   parseLibraryTokensFromUrl,
   useHandleLibrary,
@@ -1314,7 +1315,9 @@ const ExcalidrawApp = () => {
       <Provider store={appJotaiStore}>
         <ExcalidrawAPIProvider>
           <ExcalidrawWrapper />
-          <DebugPanel />
+          <Sentry.ErrorBoundary fallback={<div>Unexpected error</div>}>
+            <DebugPanel />
+          </Sentry.ErrorBoundary>
         </ExcalidrawAPIProvider>
       </Provider>
     </TopErrorBoundary>
