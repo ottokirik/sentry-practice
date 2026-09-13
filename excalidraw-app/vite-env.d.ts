@@ -47,6 +47,9 @@ interface ImportMetaEnv {
 
   DEV: string;
   PROD: string;
+
+  // Sentry
+  VITE_SENTRY_DSN: string;
 }
 
 interface ImportMeta {
