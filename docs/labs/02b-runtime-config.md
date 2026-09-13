@@ -62,7 +62,8 @@
 - `deploy/render-config.sh` — делает то же, что entrypoint контейнера: `curl`
   забирает конфигурацию, `jq` раскладывает её на статические файлы рядом со
   сборкой. Пишет `config/app.json` для остального приложения и `config.js`
-  для того, что нужно до старта
+  для того, что нужно до старта. Построчный разбор команды `jq` — в
+  [docs/notes/render-config-jq.md](../notes/render-config-jq.md)
 - `deploy/serve-stand.sh <стенд> <порт>` — копирует сборку в `.stands/<стенд>`,
   запускает `render-config.sh` и раздаёт результат
 - тип `AppRuntimeConfig` и `window.__APP_CONFIG__` объявлены в
