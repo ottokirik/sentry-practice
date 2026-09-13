@@ -1,6 +1,11 @@
 import * as Sentry from "@sentry/react";
 
-import type { TransactionEvent, ErrorEvent } from "@sentry/core";
+type ErrorEvent = Parameters<
+  NonNullable<Sentry.BrowserOptions["beforeSend"]>
+>[0];
+type TransactionEvent = Parameters<
+  NonNullable<Sentry.BrowserOptions["beforeSendTransaction"]>
+>[0];
 
 function generateId(): string {
   if (typeof crypto.randomUUID === "function") {
@@ -9,6 +14,8 @@ function generateId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+let storageAvailable = true;
 
 function getOrCreateAnonymousId() {
   const lsKey = "anonymousId";
@@ -21,6 +28,7 @@ function getOrCreateAnonymousId() {
     localStorage.setItem(lsKey, newAnonymousId);
     return newAnonymousId;
   } catch (e) {
+    storageAvailable = false;
     return generateId();
   }
 }
@@ -83,3 +91,6 @@ Sentry.init({
 });
 
 Sentry.setUser({ id: getOrCreateAnonymousId() });
+if (!storageAvailable) {
+  Sentry.setTag("storage", "unavailable");
+}
