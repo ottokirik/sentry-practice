@@ -164,6 +164,7 @@ export default defineConfig(({ mode }) => {
         },
 
         workbox: {
+          sourcemap: false,
           // don't precache fonts, locales and separate chunks
           globIgnores: [
             "fonts.css",
