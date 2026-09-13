@@ -8,6 +8,8 @@ import checker from "vite-plugin-checker";
 import { createHtmlPlugin } from "vite-plugin-html";
 import Sitemap from "vite-plugin-sitemap";
 import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
+
 export default defineConfig(({ mode }) => {
   // To load .env variables
   const envVars = loadEnv(mode, `../`);
@@ -127,7 +129,7 @@ export default defineConfig(({ mode }) => {
           },
         },
       },
-      sourcemap: true,
+      sourcemap: "hidden",
       // don't auto-inline small assets (i.e. fonts hosted on CDN)
       assetsInlineLimit: 0,
     },
@@ -318,6 +320,20 @@ export default defineConfig(({ mode }) => {
       }),
       createHtmlPlugin({
         minify: true,
+      }),
+      sentryVitePlugin({
+        org: "home-ptw",
+        project: "excalidraw-lab",
+        telemetry: false,
+        release: {
+          name: process.env.VITE_APP_RELEASE,
+        },
+        sourcemaps: {
+          filesToDeleteAfterUpload: ["./build/**/*.map"],
+        },
+        errorHandler: (err) => {
+          throw err;
+        },
       }),
     ],
     publicDir: "../public",
